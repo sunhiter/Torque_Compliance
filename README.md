@@ -38,6 +38,8 @@ Generated files default to `data/processed/file_manifest.csv`, `data/processed/t
 
 For the official REASSEMBLE layout, HDF5 trials live in a `data/` directory while the matching `*_poses.json` files live in a separate `poses/` directory. Files are matched by their shared timestamp filename stem.
 
+In `trial_index.csv`, the current `success` field is interpreted as demonstration-level success inferred from the high-level action segments: all non-`No action.` segments must be marked successful. Because REASSEMBLE demonstrations can span multiple objects, `object_name` is filled from the ordered unique objects mentioned in high-level action text when no canonical trial-level object label is present.
+
 ## Milestone Order
 
 1. Milestone 1: scaffold and config system

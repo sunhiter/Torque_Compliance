@@ -128,9 +128,9 @@ def _infer_trial_success(segments_info: Any, result_keys: list[str]) -> Any:
             meaningful_successes.append(value)
 
     if meaningful_successes:
-        return meaningful_successes[-1]
+        return all(meaningful_successes)
     if fallback_successes:
-        return fallback_successes[-1]
+        return all(fallback_successes)
     return None
 
 
