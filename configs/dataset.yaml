@@ -9,6 +9,25 @@
   segment_index_name: segment_index.csv
   insert_index_name: insert_index.csv
 
+alignment:
+  target_frequency_hz: 20.0
+  pose_mode: linear
+  ft_mode: linear
+  rgb_mode: nearest
+  pose_source_keys:
+    - pose
+    - robot_state/pose
+  ft_source_keys:
+    - measured_force
+    - measured_torque
+    - compensated_base_force
+    - compenseted_base_torque
+  rgb_source_keys:
+    - hama1
+    - hama2
+    - hand
+  aligned_index_name: aligned_samples.csv
+
 schema:
   segments_key: segments_info
   result_keys:
