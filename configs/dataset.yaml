@@ -1,0 +1,52 @@
+﻿dataset:
+  raw_root: /c20250502/sl/ls/dataset/REASSEMBLE/raw/data
+  pose_root: /c20250502/sl/ls/dataset/REASSEMBLE/raw/poses
+  processed_root: /c20250502/sl/ls/dataset/REASSEMBLE/processed
+  h5_glob: "*.h5"
+  pose_suffix: "_poses.json"
+  manifest_name: file_manifest.csv
+  trial_index_name: trial_index.csv
+  segment_index_name: segment_index.csv
+
+schema:
+  segments_key: segments_info
+  result_keys:
+    - success
+    - succeeded
+    - task_success
+  object_keys:
+    - object_name
+    - object
+    - assembly_name
+  timestamp_keys:
+    start:
+      - start_time
+      - start_timestamp
+      - t_start
+      - start
+    end:
+      - end_time
+      - end_timestamp
+      - t_end
+      - end
+  modality_keys:
+    ft:
+      - ft
+      - wrench
+      - force_torque
+      - measured_force
+      - measured_torque
+      - compensated_base_force
+      - compenseted_base_torque
+    pose:
+      - pose
+      - poses
+      - robot_state/pose
+    rgb:
+      - rgb
+      - camera
+      - image
+      - hama1
+      - hama2
+      - hand
+      - capture_node
