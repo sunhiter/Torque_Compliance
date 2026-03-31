@@ -28,6 +28,29 @@ alignment:
     - hand
   aligned_index_name: aligned_samples.csv
 
+labels:
+  phase_index_name: phase_labels.csv
+  contact_index_name: contact_labels.csv
+  phase_map:
+    Grasp: grasp
+    Lift: transfer
+    Approach: search
+    Align: search
+    Nudge: search
+    Push: insertion
+    Twist: insertion
+    Release: release
+  contact:
+    touch_ft_norm_threshold: 2.0
+    jam_ft_norm_threshold: 8.0
+    search_skills:
+      - Approach
+      - Align
+      - Nudge
+    insertion_skills:
+      - Push
+      - Twist
+
 schema:
   segments_key: segments_info
   result_keys:

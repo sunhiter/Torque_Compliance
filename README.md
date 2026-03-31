@@ -6,6 +6,7 @@ This repository hosts a minimal, reproducible Python scaffold for REASSEMBLE-bas
 - Milestone 2: raw file scanning, manifest generation, and trial-level indexing with segment metadata extraction
 - Milestone 3: insert-segment extraction with unique insert IDs and low-level skill sequences
 - Milestone 4: timestamp alignment onto a shared sample axis for insert segments
+- Milestone 5: phase remapping and weak contact labels for aligned insert samples
 
 The design intentionally prioritizes F/T and pose metadata first, keeps dataset field names configurable, and avoids assuming fixed REASSEMBLE internals when the schema is still uncertain.
 
@@ -48,7 +49,19 @@ python3 scripts/02_extract_insert_segments.py --config configs/dataset.yaml
 python3 scripts/03_align_modalities.py --config configs/dataset.yaml
 ```
 
-Generated files default to `data/processed/file_manifest.csv`, `data/processed/trial_index.csv`, `data/processed/segment_index.csv`, `data/processed/insert_index.csv`, and `data/processed/aligned_samples.csv`.
+7. Generate phase labels:
+
+```bash
+python3 scripts/04_make_phase_labels.py --config configs/dataset.yaml
+```
+
+8. Generate weak contact labels:
+
+```bash
+python3 scripts/05_make_contact_labels.py --config configs/dataset.yaml
+```
+
+Generated files default to `data/processed/file_manifest.csv`, `data/processed/trial_index.csv`, `data/processed/segment_index.csv`, `data/processed/insert_index.csv`, `data/processed/aligned_samples.csv`, `data/processed/phase_labels.csv`, and `data/processed/contact_labels.csv`.
 
 For the official REASSEMBLE layout, HDF5 trials live in a `data/` directory while the matching `*_poses.json` files live in a separate `poses/` directory. Files are matched by their shared timestamp filename stem.
 
@@ -56,13 +69,16 @@ In `trial_index.csv`, `trial_success_all_actions` is interpreted as demonstratio
 
 `aligned_samples.csv` stores time-aligned sample indices rather than copied sensor data. Pose and F/T alignment use interpolation index pairs plus weights, while RGB alignment uses nearest-frame indices for each configured camera stream.
 
+`phase_labels.csv` maps each aligned sample to the active official low-level skill and a configurable phase label. `contact_labels.csv` uses interpolated F/T magnitude thresholds and low-level skill groups to assign weak labels from the set `free`, `touch`, `search_contact`, `insertion_contact`, and `jam_or_abnormal`.
+
 ## Milestone Order
 
 1. Milestone 1: scaffold and config system
 2. Milestone 2: file scanning and trial index
 3. Milestone 3: insert segment extraction
 4. Milestone 4: time alignment
-5. Milestone 5+: labeling, windows, training, and evaluation
+5. Milestone 5: labeling
+6. Milestone 6+: windows, training, and evaluation
 
 Unless blocked, development should follow this order.
 
@@ -72,7 +88,9 @@ Unless blocked, development should follow this order.
 - Script interface check: `python3 scripts/01_build_index.py --help`
 - Script interface check: `python3 scripts/02_extract_insert_segments.py --help`
 - Script interface check: `python3 scripts/03_align_modalities.py --help`
-- Regression tests: `python3 -m pytest tests/test_config.py tests/test_trial_index.py tests/test_insert_index.py tests/test_timestamp_aligner.py`
+- Script interface check: `python3 scripts/04_make_phase_labels.py --help`
+- Script interface check: `python3 scripts/05_make_contact_labels.py --help`
+- Regression tests: `python3 -m pytest tests/test_config.py tests/test_trial_index.py tests/test_insert_index.py tests/test_timestamp_aligner.py tests/test_phase_mapper.py tests/test_contact_rule_labeler.py`
 
 ## TODO
 
