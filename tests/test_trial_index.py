@@ -203,3 +203,51 @@ def test_read_pose_metadata_reads_static_pose_manifest(tmp_path: Path) -> None:
     assert metadata["end_time"] is None
     assert metadata["num_pose_samples"] == 0
     assert metadata["num_pose_entities"] == 2
+
+
+def test_build_trial_index_infers_object_name_and_success_from_segments(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw" / "data"
+    raw_root.mkdir(parents=True)
+    pose_root = tmp_path / "raw" / "poses"
+    pose_root.mkdir(parents=True)
+    processed_root = tmp_path / "processed"
+
+    h5_path = raw_root / "trial_002.h5"
+    with h5py.File(h5_path, "w") as handle:
+        robot_state = handle.create_group("robot_state")
+        robot_state.create_dataset("pose", data=[[0.0] * 7, [1.0] * 7])
+        robot_state.create_dataset("measured_force", data=[[0.0, 0.1, 0.2], [0.3, 0.4, 0.5]])
+
+        timestamps = handle.create_group("timestamps")
+        timestamps.create_dataset("pose", data=[0.1, 0.6, 1.1])
+
+        segments = handle.create_group("segments_info")
+        no_action = segments.create_group("0")
+        no_action.create_dataset("start", data=0.0)
+        no_action.create_dataset("end", data=0.1)
+        no_action.create_dataset("text", data="No action.")
+        no_action.create_dataset("success", data=True)
+
+        pick = segments.create_group("1")
+        pick.create_dataset("start", data=0.1)
+        pick.create_dataset("end", data=0.5)
+        pick.create_dataset("text", data="Pick Ethernet.")
+        pick.create_dataset("success", data=True)
+
+        insert = segments.create_group("2")
+        insert.create_dataset("start", data=0.5)
+        insert.create_dataset("end", data=1.0)
+        insert.create_dataset("text", data="Insert Ethernet.")
+        insert.create_dataset("success", data=True)
+
+    pose_path = pose_root / "trial_002_poses.json"
+    pose_path.write_text(json.dumps({"Hama1": [[0, 0, 0], [0, 0, 0, 1]]}), encoding="utf-8")
+
+    config_path = tmp_path / "dataset.yaml"
+    _write_dataset_config(config_path, raw_root, pose_root, processed_root)
+    config = load_config(config_path)
+
+    trial_rows, _ = build_trial_index(config, scan_raw_files(config))
+
+    assert trial_rows[0]["object_name"] == "Ethernet"
+    assert trial_rows[0]["success"] is True

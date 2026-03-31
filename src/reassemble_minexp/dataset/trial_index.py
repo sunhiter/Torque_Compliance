@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,70 @@ def _normalize_bool(value: Any) -> Any:
     return value
 
 
+def _segment_value(segment: dict[str, Any], keys: list[str]) -> Any:
+    value = _first_present(segment, keys)
+    if value is not None:
+        return value
+    attrs = segment.get("attrs", {})
+    if isinstance(attrs, dict):
+        return _first_present(attrs, keys)
+    return None
+
+
+def _high_level_segments(segments_info: Any) -> list[dict[str, Any]]:
+    if isinstance(segments_info, list):
+        return [item for item in segments_info if isinstance(item, dict)]
+    if isinstance(segments_info, dict):
+        if "segments" in segments_info and isinstance(segments_info["segments"], list):
+            return [item for item in segments_info["segments"] if isinstance(item, dict)]
+        if "high_level" in segments_info and isinstance(segments_info["high_level"], list):
+            return [item for item in segments_info["high_level"] if isinstance(item, dict)]
+        return [value for key, value in segments_info.items() if key != "attrs" and isinstance(value, dict)]
+    return []
+
+
+def _segment_text(segment: dict[str, Any]) -> str | None:
+    value = _segment_value(segment, ["text", "name", "label", "skill", "action"])
+    if value in (None, ""):
+        return None
+    return str(value).strip()
+
+
+def _infer_object_name(segments_info: Any) -> str | None:
+    objects: list[str] = []
+    for segment in _high_level_segments(segments_info):
+        text = _segment_text(segment)
+        if not text or text.lower().startswith("no action"):
+            continue
+        match = re.match(r"^(pick|insert|remove|place)\s+(.+?)[.!]?$", text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        object_name = match.group(2).strip()
+        if object_name and object_name not in objects:
+            objects.append(object_name)
+    return "|".join(objects) if objects else None
+
+
+def _infer_trial_success(segments_info: Any, result_keys: list[str]) -> Any:
+    meaningful_successes: list[bool] = []
+    fallback_successes: list[bool] = []
+
+    for segment in _high_level_segments(segments_info):
+        value = _normalize_bool(_segment_value(segment, result_keys))
+        if not isinstance(value, bool):
+            continue
+        fallback_successes.append(value)
+        text = _segment_text(segment)
+        if text and not text.lower().startswith("no action"):
+            meaningful_successes.append(value)
+
+    if meaningful_successes:
+        return meaningful_successes[-1]
+    if fallback_successes:
+        return fallback_successes[-1]
+    return None
+
+
 def scan_raw_files(config: Any) -> list[dict[str, Any]]:
     """Create manifest rows for HDF5 trials and matching pose JSON files."""
 
@@ -118,20 +183,25 @@ def build_trial_index(config: Any, manifest_rows: list[dict[str, Any]]) -> tuple
 
     for manifest_row in manifest_rows:
         h5_metadata = read_h5_metadata(manifest_row["h5_path"], config.schema.segments_key)
+        segments_info = h5_metadata.get("segments_info")
         pose_metadata = read_pose_metadata(manifest_row["pose_path"]) if manifest_row["has_pose_json"] else {}
-        trial_segment_rows = parse_segment_rows(h5_metadata.get("segments_info"), manifest_row["trial_id"], config.schema)
+        trial_segment_rows = parse_segment_rows(segments_info, manifest_row["trial_id"], config.schema)
         segment_rows.extend(trial_segment_rows)
         segment_summary = summarize_trial_segments(trial_segment_rows)
         attrs = h5_metadata.get("attrs", {})
         pose_start_time, pose_end_time = _timestamp_range(h5_metadata, list(config.schema.modality_keys.pose))
+        object_name = _first_present(attrs, list(config.schema.object_keys)) or _infer_object_name(segments_info)
+        success = _normalize_bool(_first_present(attrs, list(config.schema.result_keys)))
+        if success is None:
+            success = _infer_trial_success(segments_info, list(config.schema.result_keys))
 
         trial_rows.append(
             {
                 "trial_id": manifest_row["trial_id"],
                 "h5_path": manifest_row["h5_path"],
                 "pose_path": pose_metadata.get("pose_path", manifest_row["pose_path"]),
-                "object_name": _first_present(attrs, list(config.schema.object_keys)),
-                "success": _normalize_bool(_first_present(attrs, list(config.schema.result_keys))),
+                "object_name": object_name,
+                "success": success,
                 "has_ft": _has_any_key(h5_metadata, attrs, list(config.schema.modality_keys.ft)),
                 "has_pose": _has_any_key(h5_metadata, attrs, list(config.schema.modality_keys.pose)),
                 "has_rgb": _has_any_key(h5_metadata, attrs, list(config.schema.modality_keys.rgb)),

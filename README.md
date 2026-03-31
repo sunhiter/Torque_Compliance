@@ -55,5 +55,6 @@ Unless blocked, development should follow this order.
 ## TODO
 
 - Confirm canonical HDF5 dataset keys for F/T timestamps and modality availability flags.
+- Replace the current segment-text fallback for `object_name` with a direct field if a canonical trial-level object label exists in released HDF5 files.
 - Decide whether future milestones should export one segment CSV or keep segment rows nested in the trial index.
 - Add richer config validation once the full training pipeline is present.
