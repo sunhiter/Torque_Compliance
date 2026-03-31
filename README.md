@@ -4,6 +4,7 @@ This repository hosts a minimal, reproducible Python scaffold for REASSEMBLE-bas
 
 - Milestone 1: project scaffold, configuration system, developer agreements, and runnable CLI entry points
 - Milestone 2: raw file scanning, manifest generation, and trial-level indexing with segment metadata extraction
+- Milestone 3: insert-segment extraction with unique insert IDs and low-level skill sequences
 
 The design intentionally prioritizes F/T and pose metadata first, keeps dataset field names configurable, and avoids assuming fixed REASSEMBLE internals when the schema is still uncertain.
 
@@ -34,7 +35,13 @@ python3 scripts/00_scan_files.py --config configs/dataset.yaml
 python3 scripts/01_build_index.py --config configs/dataset.yaml
 ```
 
-Generated files default to `data/processed/file_manifest.csv`, `data/processed/trial_index.csv`, and `data/processed/segment_index.csv`.
+5. Extract insert segments:
+
+```bash
+python3 scripts/02_extract_insert_segments.py --config configs/dataset.yaml
+```
+
+Generated files default to `data/processed/file_manifest.csv`, `data/processed/trial_index.csv`, `data/processed/segment_index.csv`, and `data/processed/insert_index.csv`.
 
 For the official REASSEMBLE layout, HDF5 trials live in a `data/` directory while the matching `*_poses.json` files live in a separate `poses/` directory. Files are matched by their shared timestamp filename stem.
 
@@ -44,7 +51,8 @@ In `trial_index.csv`, `trial_success_all_actions` is interpreted as demonstratio
 
 1. Milestone 1: scaffold and config system
 2. Milestone 2: file scanning and trial index
-3. Milestone 3+: segment extraction, alignment, labeling, windows, training, and evaluation
+3. Milestone 3: insert segment extraction
+4. Milestone 4+: alignment, labeling, windows, training, and evaluation
 
 Unless blocked, development should follow this order.
 
@@ -52,7 +60,8 @@ Unless blocked, development should follow this order.
 
 - Script interface check: `python3 scripts/00_scan_files.py --help`
 - Script interface check: `python3 scripts/01_build_index.py --help`
-- Regression tests: `python3 -m pytest tests/test_config.py tests/test_trial_index.py`
+- Script interface check: `python3 scripts/02_extract_insert_segments.py --help`
+- Regression tests: `python3 -m pytest tests/test_config.py tests/test_trial_index.py tests/test_insert_index.py`
 
 ## TODO
 
