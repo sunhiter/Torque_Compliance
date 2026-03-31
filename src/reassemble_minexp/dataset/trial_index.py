@@ -134,6 +134,24 @@ def _infer_trial_success(segments_info: Any, result_keys: list[str]) -> Any:
     return None
 
 
+def _infer_last_action_success(segments_info: Any, result_keys: list[str]) -> Any:
+    last_meaningful_success: Any = None
+    last_fallback_success: Any = None
+
+    for segment in _high_level_segments(segments_info):
+        value = _normalize_bool(_segment_value(segment, result_keys))
+        if not isinstance(value, bool):
+            continue
+        last_fallback_success = value
+        text = _segment_text(segment)
+        if text and not text.lower().startswith("no action"):
+            last_meaningful_success = value
+
+    if isinstance(last_meaningful_success, bool):
+        return last_meaningful_success
+    return last_fallback_success
+
+
 def scan_raw_files(config: Any) -> list[dict[str, Any]]:
     """Create manifest rows for HDF5 trials and matching pose JSON files."""
 
@@ -190,18 +208,23 @@ def build_trial_index(config: Any, manifest_rows: list[dict[str, Any]]) -> tuple
         segment_summary = summarize_trial_segments(trial_segment_rows)
         attrs = h5_metadata.get("attrs", {})
         pose_start_time, pose_end_time = _timestamp_range(h5_metadata, list(config.schema.modality_keys.pose))
-        object_name = _first_present(attrs, list(config.schema.object_keys)) or _infer_object_name(segments_info)
-        success = _normalize_bool(_first_present(attrs, list(config.schema.result_keys)))
-        if success is None:
-            success = _infer_trial_success(segments_info, list(config.schema.result_keys))
+        object_names = _first_present(attrs, list(config.schema.object_keys)) or _infer_object_name(segments_info)
+        attr_success = _normalize_bool(_first_present(attrs, list(config.schema.result_keys)))
+        trial_success_all_actions = attr_success
+        if trial_success_all_actions is None:
+            trial_success_all_actions = _infer_trial_success(segments_info, list(config.schema.result_keys))
+        trial_success_last_action = attr_success
+        if trial_success_last_action is None:
+            trial_success_last_action = _infer_last_action_success(segments_info, list(config.schema.result_keys))
 
         trial_rows.append(
             {
                 "trial_id": manifest_row["trial_id"],
                 "h5_path": manifest_row["h5_path"],
                 "pose_path": pose_metadata.get("pose_path", manifest_row["pose_path"]),
-                "object_name": object_name,
-                "success": success,
+                "object_names": object_names,
+                "trial_success_all_actions": trial_success_all_actions,
+                "trial_success_last_action": trial_success_last_action,
                 "has_ft": _has_any_key(h5_metadata, attrs, list(config.schema.modality_keys.ft)),
                 "has_pose": _has_any_key(h5_metadata, attrs, list(config.schema.modality_keys.pose)),
                 "has_rgb": _has_any_key(h5_metadata, attrs, list(config.schema.modality_keys.rgb)),
@@ -233,8 +256,9 @@ def write_trial_outputs(config: Any, trial_rows: list[dict[str, Any]], segment_r
             "trial_id",
             "h5_path",
             "pose_path",
-            "object_name",
-            "success",
+            "object_names",
+            "trial_success_all_actions",
+            "trial_success_last_action",
             "has_ft",
             "has_pose",
             "has_rgb",

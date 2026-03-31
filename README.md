@@ -38,7 +38,7 @@ Generated files default to `data/processed/file_manifest.csv`, `data/processed/t
 
 For the official REASSEMBLE layout, HDF5 trials live in a `data/` directory while the matching `*_poses.json` files live in a separate `poses/` directory. Files are matched by their shared timestamp filename stem.
 
-In `trial_index.csv`, the current `success` field is interpreted as demonstration-level success inferred from the high-level action segments: all non-`No action.` segments must be marked successful. Because REASSEMBLE demonstrations can span multiple objects, `object_name` is filled from the ordered unique objects mentioned in high-level action text when no canonical trial-level object label is present.
+In `trial_index.csv`, `trial_success_all_actions` is interpreted as demonstration-level success inferred from the high-level action segments: all non-`No action.` segments must be marked successful. `trial_success_last_action` keeps the success flag of the last non-`No action.` high-level segment. Because REASSEMBLE demonstrations can span multiple objects, `object_names` is filled from the ordered unique objects mentioned in high-level action text when no canonical trial-level object label is present.
 
 ## Milestone Order
 
@@ -57,6 +57,6 @@ Unless blocked, development should follow this order.
 ## TODO
 
 - Confirm canonical HDF5 dataset keys for F/T timestamps and modality availability flags.
-- Replace the current segment-text fallback for `object_name` with a direct field if a canonical trial-level object label exists in released HDF5 files.
+- Replace the current segment-text fallback for `object_names` with a direct field if a canonical trial-level object label exists in released HDF5 files.
 - Decide whether future milestones should export one segment CSV or keep segment rows nested in the trial index.
 - Add richer config validation once the full training pipeline is present.
