@@ -3,7 +3,12 @@ from pathlib import Path
 
 import h5py
 
-from reassemble_minexp.labels.contact_rule_labeler import classify_contact_label, run_contact_label_pipeline
+from reassemble_minexp.labels.contact_rule_labeler import (
+    classify_contact_label,
+    format_threshold_suggestion,
+    run_contact_label_pipeline,
+    summarize_ft_value_norms,
+)
 from reassemble_minexp.utils.config import load_config
 
 
@@ -156,3 +161,71 @@ schema:
         rows = list(csv.DictReader(handle))
 
     assert [row["y_contact"] for row in rows] == ["free", "insertion_contact", "jam_or_abnormal"]
+
+
+def test_summarize_ft_value_norms_suggests_thresholds(tmp_path: Path) -> None:
+    config_path = tmp_path / "dataset.yaml"
+    config_path.write_text(
+        """
+dataset:
+  raw_root: data/raw
+  pose_root: data/poses
+  processed_root: data/processed
+  h5_glob: "*.h5"
+  pose_suffix: "_poses.json"
+  manifest_name: file_manifest.csv
+  trial_index_name: trial_index.csv
+  segment_index_name: segment_index.csv
+  insert_index_name: insert_index.csv
+alignment:
+  target_frequency_hz: 20.0
+  pose_mode: linear
+  ft_mode: linear
+  rgb_mode: nearest
+  pose_source_keys: [pose]
+  ft_source_keys: [measured_force]
+  rgb_source_keys: [hama1]
+  aligned_index_name: aligned_samples.csv
+labels:
+  phase_index_name: phase_labels.csv
+  contact_index_name: contact_labels.csv
+  phase_map:
+    Approach: search
+    Push: insertion
+  contact:
+    touch_ft_norm_threshold: 2.0
+    jam_ft_norm_threshold: 8.0
+    search_skills: [Approach, Align, Nudge]
+    insertion_skills: [Push, Twist]
+schema:
+  segments_key: segments_info
+  result_keys: [success]
+  object_keys: [object_name]
+  timestamp_keys:
+    start: [start]
+    end: [end]
+  modality_keys:
+    ft: [measured_force]
+    pose: [pose]
+    rgb: [hama1]
+""",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+    contact_rows = [
+        {"active_low_level_skill": "Approach", "ft_value_norm": 1.0},
+        {"active_low_level_skill": "Approach", "ft_value_norm": 2.0},
+        {"active_low_level_skill": "Approach", "ft_value_norm": 3.0},
+        {"active_low_level_skill": "Push", "ft_value_norm": 4.0},
+        {"active_low_level_skill": "Push", "ft_value_norm": 8.0},
+        {"active_low_level_skill": "Push", "ft_value_norm": 12.0},
+    ]
+
+    summary = summarize_ft_value_norms(contact_rows, config)
+    rendered = format_threshold_suggestion(summary)
+
+    assert summary["count"] == 6
+    assert summary["suggested_touch_ft_norm_threshold"] == 1.2
+    assert summary["suggested_jam_ft_norm_threshold"] == 11.8
+    assert "labels.contact.touch_ft_norm_threshold=1.200" in rendered
+    assert "labels.contact.jam_ft_norm_threshold=11.800" in rendered

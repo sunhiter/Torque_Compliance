@@ -61,6 +61,12 @@ python3 scripts/04_make_phase_labels.py --config configs/dataset.yaml
 python3 scripts/05_make_contact_labels.py --config configs/dataset.yaml
 ```
 
+If you want data-driven threshold suggestions from the generated `ft_value_norm` distribution, run:
+
+```bash
+python3 scripts/05_make_contact_labels.py --config configs/dataset.yaml --suggest-thresholds
+```
+
 Generated files default to `data/processed/file_manifest.csv`, `data/processed/trial_index.csv`, `data/processed/segment_index.csv`, `data/processed/insert_index.csv`, `data/processed/aligned_samples.csv`, `data/processed/phase_labels.csv`, and `data/processed/contact_labels.csv`.
 
 For the official REASSEMBLE layout, HDF5 trials live in a `data/` directory while the matching `*_poses.json` files live in a separate `poses/` directory. Files are matched by their shared timestamp filename stem.

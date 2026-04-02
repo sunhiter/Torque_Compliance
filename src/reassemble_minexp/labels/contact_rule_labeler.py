@@ -90,6 +90,90 @@ def classify_contact_label(skill_name: str, ft_norm: float, config: Any) -> tupl
     return "touch", "contact_without_specific_skill_group"
 
 
+def _quantile(sorted_values: list[float], q: float) -> float:
+    if not sorted_values:
+        raise ValueError("Cannot compute a quantile of an empty list")
+    if q <= 0:
+        return sorted_values[0]
+    if q >= 1:
+        return sorted_values[-1]
+
+    position = (len(sorted_values) - 1) * q
+    left_index = int(math.floor(position))
+    right_index = int(math.ceil(position))
+    if left_index == right_index:
+        return sorted_values[left_index]
+
+    weight = position - left_index
+    return sorted_values[left_index] * (1.0 - weight) + sorted_values[right_index] * weight
+
+
+def summarize_ft_value_norms(contact_rows: list[dict[str, Any]], config: Any) -> dict[str, Any]:
+    """Summarize F/T norm distribution and suggest threshold candidates."""
+
+    all_values = sorted(float(row["ft_value_norm"]) for row in contact_rows)
+    if not all_values:
+        raise ValueError("contact_rows must not be empty")
+
+    search_skills = {_normalize_skill_name(skill) for skill in config.labels.contact.search_skills}
+    insertion_skills = {_normalize_skill_name(skill) for skill in config.labels.contact.insertion_skills}
+
+    search_values = sorted(
+        float(row["ft_value_norm"])
+        for row in contact_rows
+        if _normalize_skill_name(str(row.get("active_low_level_skill", ""))) in search_skills
+    )
+    insertion_values = sorted(
+        float(row["ft_value_norm"])
+        for row in contact_rows
+        if _normalize_skill_name(str(row.get("active_low_level_skill", ""))) in insertion_skills
+    )
+
+    summary = {
+        "count": len(all_values),
+        "min": _quantile(all_values, 0.0),
+        "p05": _quantile(all_values, 0.05),
+        "p10": _quantile(all_values, 0.10),
+        "p25": _quantile(all_values, 0.25),
+        "p50": _quantile(all_values, 0.50),
+        "p75": _quantile(all_values, 0.75),
+        "p90": _quantile(all_values, 0.90),
+        "p95": _quantile(all_values, 0.95),
+        "p99": _quantile(all_values, 0.99),
+        "max": _quantile(all_values, 1.0),
+        "search_count": len(search_values),
+        "insertion_count": len(insertion_values),
+    }
+
+    touch_source = search_values if search_values else all_values
+    jam_source = insertion_values if insertion_values else all_values
+    touch_suggestion = _quantile(touch_source, 0.10)
+    jam_suggestion = max(_quantile(jam_source, 0.95), _quantile(all_values, 0.99))
+    if jam_suggestion <= touch_suggestion:
+        jam_suggestion = max(touch_suggestion * 1.25, _quantile(all_values, 0.99))
+
+    summary["suggested_touch_ft_norm_threshold"] = touch_suggestion
+    summary["suggested_jam_ft_norm_threshold"] = jam_suggestion
+    return summary
+
+
+def format_threshold_suggestion(summary: dict[str, Any]) -> str:
+    """Format a readable threshold suggestion block for CLI output."""
+
+    return "\n".join(
+        [
+            "F/T norm summary:",
+            f"  count={summary['count']}",
+            f"  min={summary['min']:.3f} p05={summary['p05']:.3f} p10={summary['p10']:.3f} p25={summary['p25']:.3f}",
+            f"  p50={summary['p50']:.3f} p75={summary['p75']:.3f} p90={summary['p90']:.3f} p95={summary['p95']:.3f} p99={summary['p99']:.3f} max={summary['max']:.3f}",
+            f"  search_count={summary['search_count']} insertion_count={summary['insertion_count']}",
+            "Suggested overrides:",
+            f"  labels.contact.touch_ft_norm_threshold={summary['suggested_touch_ft_norm_threshold']:.3f}",
+            f"  labels.contact.jam_ft_norm_threshold={summary['suggested_jam_ft_norm_threshold']:.3f}",
+        ]
+    )
+
+
 def build_contact_visualization_payload(contact_rows: list[dict[str, Any]]) -> dict[str, list[Any]]:
     """Prepare a lightweight plotting payload for label quality checks."""
 
