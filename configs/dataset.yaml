@@ -41,8 +41,8 @@ labels:
     Twist: insertion
     Release: release
   contact:
-    touch_ft_norm_threshold: 2.0
-    jam_ft_norm_threshold: 8.0
+    touch_ft_norm_threshold: 12.5
+    jam_ft_norm_threshold: 26.4
     search_skills:
       - Approach
       - Align

@@ -1,5 +1,7 @@
 """Generate weak contact labels from aligned insert samples and F/T rules."""
 
+#TODO Threshold parameters are not yet implemented
+
 from __future__ import annotations
 
 import argparse
