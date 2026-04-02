@@ -51,6 +51,22 @@ labels:
       - Push
       - Twist
 
+windows:
+  history_length: 16
+  history_step: 1
+  export_stride: 4
+  window_index_name: windows.csv
+  structure_tokens_path: ""
+  split_source_path: ""
+  split_ratios:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+  split_output_names:
+    train: train_windows.csv
+    val: val_windows.csv
+    test: test_windows.csv
+
 schema:
   segments_key: segments_info
   result_keys:

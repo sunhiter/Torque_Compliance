@@ -7,6 +7,7 @@ This repository hosts a minimal, reproducible Python scaffold for REASSEMBLE-bas
 - Milestone 3: insert-segment extraction with unique insert IDs and low-level skill sequences
 - Milestone 4: timestamp alignment onto a shared sample axis for insert segments
 - Milestone 5: phase remapping and weak contact labels for aligned insert samples
+- Milestone 6: fixed-length history window export with train/val/test splits
 
 The design intentionally prioritizes F/T and pose metadata first, keeps dataset field names configurable, and avoids assuming fixed REASSEMBLE internals when the schema is still uncertain.
 
@@ -61,13 +62,19 @@ python3 scripts/04_make_phase_labels.py --config configs/dataset.yaml
 python3 scripts/05_make_contact_labels.py --config configs/dataset.yaml
 ```
 
+9. Export training windows:
+
+```bash
+python3 scripts/06_export_windows.py --config configs/dataset.yaml
+```
+
 If you want data-driven threshold suggestions from the generated `ft_value_norm` distribution, run:
 
 ```bash
 python3 scripts/05_make_contact_labels.py --config configs/dataset.yaml --suggest-thresholds
 ```
 
-Generated files default to `data/processed/file_manifest.csv`, `data/processed/trial_index.csv`, `data/processed/segment_index.csv`, `data/processed/insert_index.csv`, `data/processed/aligned_samples.csv`, `data/processed/phase_labels.csv`, and `data/processed/contact_labels.csv`.
+Generated files default to `data/processed/file_manifest.csv`, `data/processed/trial_index.csv`, `data/processed/segment_index.csv`, `data/processed/insert_index.csv`, `data/processed/aligned_samples.csv`, `data/processed/phase_labels.csv`, `data/processed/contact_labels.csv`, `data/processed/windows.csv`, `data/processed/train_windows.csv`, `data/processed/val_windows.csv`, and `data/processed/test_windows.csv`.
 
 For the official REASSEMBLE layout, HDF5 trials live in a `data/` directory while the matching `*_poses.json` files live in a separate `poses/` directory. Files are matched by their shared timestamp filename stem.
 
@@ -77,6 +84,8 @@ In `trial_index.csv`, `trial_success_all_actions` is interpreted as demonstratio
 
 `phase_labels.csv` maps each aligned sample to the active official low-level skill and a configurable phase label. `contact_labels.csv` uses interpolated F/T magnitude thresholds and low-level skill groups to assign weak labels from the set `free`, `touch`, `search_contact`, `insertion_contact`, and `jam_or_abnormal`.
 
+`windows.csv` stores fixed-length history windows with JSON-encoded pose/F/T histories, optional RGB frame-index histories, a structure token, and labels for the current step plus next-step pose delta. The export also writes deterministic `train`, `val`, and `test` subset CSVs by trial unless an external split mapping is provided.
+
 ## Milestone Order
 
 1. Milestone 1: scaffold and config system
@@ -84,7 +93,8 @@ In `trial_index.csv`, `trial_success_all_actions` is interpreted as demonstratio
 3. Milestone 3: insert segment extraction
 4. Milestone 4: time alignment
 5. Milestone 5: labeling
-6. Milestone 6+: windows, training, and evaluation
+6. Milestone 6: window export
+7. Milestone 7+: training and evaluation
 
 Unless blocked, development should follow this order.
 
@@ -96,7 +106,8 @@ Unless blocked, development should follow this order.
 - Script interface check: `python3 scripts/03_align_modalities.py --help`
 - Script interface check: `python3 scripts/04_make_phase_labels.py --help`
 - Script interface check: `python3 scripts/05_make_contact_labels.py --help`
-- Regression tests: `python3 -m pytest tests/test_config.py tests/test_trial_index.py tests/test_insert_index.py tests/test_timestamp_aligner.py tests/test_phase_mapper.py tests/test_contact_rule_labeler.py`
+- Script interface check: `python3 scripts/06_export_windows.py --help`
+- Regression tests: `python3 -m pytest tests/test_config.py tests/test_trial_index.py tests/test_insert_index.py tests/test_timestamp_aligner.py tests/test_phase_mapper.py tests/test_contact_rule_labeler.py tests/test_window_dataset.py`
 
 ## TODO
 
