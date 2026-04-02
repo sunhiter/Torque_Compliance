@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import csv
 import json
+import math
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -216,6 +219,46 @@ def _dataloader(dataset: WindowClassificationDataset, batch_size: int, shuffle: 
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
 
+def _format_eta(seconds: float) -> str:
+    if seconds < 0 or not math.isfinite(seconds):
+        return "unknown"
+    rounded = int(seconds + 0.5)
+    hours, remainder = divmod(rounded, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours:d}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes:d}m{secs:02d}s"
+    return f"{secs:d}s"
+
+
+def _print_batch_progress(
+    *,
+    stage: str,
+    epoch: int,
+    total_epochs: int,
+    batch_index: int,
+    num_batches: int,
+    running_loss: float,
+    sample_count: int,
+    start_time: float,
+    final: bool = False,
+) -> None:
+    elapsed = max(time.monotonic() - start_time, 1e-9)
+    average_loss = running_loss / max(sample_count, 1)
+    batches_per_second = batch_index / elapsed
+    remaining_batches = max(num_batches - batch_index, 0)
+    eta = remaining_batches / batches_per_second if batches_per_second > 0 else float("inf")
+    percent = (batch_index / max(num_batches, 1)) * 100.0
+    message = (
+        f"\r{stage} epoch {epoch:03d}/{total_epochs:03d}: "
+        f"{batch_index}/{num_batches} batches ({percent:5.1f}%) | "
+        f"avg_loss={average_loss:.4f} | "
+        f"{batches_per_second:,.1f} batches/s | ETA {_format_eta(eta)}"
+    )
+    print(message, file=sys.stderr, end="\n" if final else "", flush=True)
+
+
 def train_baseline(config: Any) -> dict[str, Any]:
     """Train a minimal baseline classifier from exported windows."""
 
@@ -270,11 +313,47 @@ def train_baseline(config: Any) -> dict[str, Any]:
     run_dir = prepare_run_directory(output_root, str(config.experiment.name))
     checkpoint_path = run_dir / str(getattr(config.train, "checkpoint_name", "best.pt"))
     selection_metric = _selection_metric(task, config)
+    progress_every = max(1, int(getattr(config.train, "progress_every", 20)))
     best_metric = float("-inf")
     history: list[dict[str, Any]] = []
 
     for epoch in range(1, int(config.train.epochs) + 1):
-        train_loss, train_predictions, train_targets = _run_epoch(model, train_loader, loss_fn, device, optimizer=optimizer)
+        model.train(True)
+        train_predictions: list[int] = []
+        train_targets: list[int] = []
+        running_loss = 0.0
+        processed_samples = 0
+        epoch_start = time.monotonic()
+
+        for batch_index, (features, labels) in enumerate(train_loader, start=1):
+            features = features.to(device)
+            labels = labels.to(device)
+            optimizer.zero_grad()
+            logits = model(features)
+            loss = loss_fn(logits, labels)
+            loss.backward()
+            optimizer.step()
+
+            batch_size = int(labels.shape[0])
+            running_loss += float(loss.item()) * batch_size
+            processed_samples += batch_size
+            train_predictions.extend(torch.argmax(logits, dim=-1).detach().cpu().tolist())
+            train_targets.extend(labels.detach().cpu().tolist())
+
+            if batch_index == 1 or batch_index % progress_every == 0 or batch_index == len(train_loader):
+                _print_batch_progress(
+                    stage="Train",
+                    epoch=epoch,
+                    total_epochs=int(config.train.epochs),
+                    batch_index=batch_index,
+                    num_batches=len(train_loader),
+                    running_loss=running_loss,
+                    sample_count=processed_samples,
+                    start_time=epoch_start,
+                    final=batch_index == len(train_loader),
+                )
+
+        train_loss = running_loss / len(train_loader.dataset)
         train_metrics = classification_metrics(task, train_targets, train_predictions, num_classes)
         train_metrics["loss"] = train_loss
         val_metrics = _evaluate(model, val_loader, loss_fn, device, task, num_classes)

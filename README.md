@@ -104,6 +104,8 @@ The Milestone 6 exporter streams rows directly to disk and precomputes aligned p
 
 Milestone 7 trains single-task baselines directly from the exported windows. The first working version supports `phase`, `contact`, and `success` tasks with either `mlp` or `gru` backbones and three modality settings: `ft_only`, `pose_only`, and `ft_pose`. The trainer writes a `best.pt` checkpoint plus `metrics.json`, `history.json`, and `label_mapping.json` for each run.
 
+During training, the baseline trainer prints live batch progress for each epoch, including processed batches, running average loss, throughput, and ETA. You can adjust the refresh interval with `train.progress_every`.
+
 ## Milestone Order
 
 1. Milestone 1: scaffold and config system
