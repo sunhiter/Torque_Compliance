@@ -6,6 +6,12 @@ experiment:
 
 task: contact
 
+suite:
+  modalities:
+    - ft_only
+    - pose_only
+    - ft_pose
+
 input:
   modality: ft_pose
 
@@ -21,7 +27,8 @@ model:
 
 train:
   seed: 7
-  device: auto
+  device: cuda
+  allow_cpu_fallback: true
   batch_size: 256
   epochs: 10
   progress_every: 20

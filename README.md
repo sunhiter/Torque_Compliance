@@ -82,6 +82,12 @@ python3 scripts/07_train_baseline.py --config configs/train_contact.yaml --set i
 python3 scripts/07_train_baseline.py --config configs/train_phase.yaml --set task=success experiment.name=success_mlp_pose_only input.modality=pose_only train.selection_metric=f1
 ```
 
+To run the three baseline modalities in one command and write a compact summary table:
+
+```bash
+python3 scripts/07_train_baseline.py --config configs/train_phase.yaml --run-suite
+```
+
 If you want data-driven threshold suggestions from the generated `ft_value_norm` distribution, run:
 
 ```bash
@@ -102,9 +108,9 @@ In `trial_index.csv`, `trial_success_all_actions` is interpreted as demonstratio
 
 The Milestone 6 exporter streams rows directly to disk and precomputes aligned pose/F/T vectors once per insert segment so full-dataset runs avoid repeated HDF5 opens and large in-memory window buffers. It also prints command-line progress with throughput and ETA during export; the refresh interval is configurable with `windows.progress_every`. For a first remote smoke test on the full dataset, it can still help to temporarily raise `windows.export_stride` before switching back to the final setting.
 
-Milestone 7 trains single-task baselines directly from the exported windows. The first working version supports `phase`, `contact`, and `success` tasks with either `mlp` or `gru` backbones and three modality settings: `ft_only`, `pose_only`, and `ft_pose`. The trainer writes a `best.pt` checkpoint plus `metrics.json`, `history.json`, and `label_mapping.json` for each run.
+Milestone 7 trains single-task baselines directly from the exported windows. The first working version supports `phase`, `contact`, and `success` tasks with either `mlp` or `gru` backbones and three modality settings: `ft_only`, `pose_only`, and `ft_pose`. The trainer writes a `best.pt` checkpoint plus `metrics.json`, `history.json`, and `label_mapping.json` for each run. In suite mode it also writes `suite_summary.csv` and `suite_summary.json`.
 
-During training, the baseline trainer prints live batch progress for each epoch, including processed batches, running average loss, throughput, and ETA. You can adjust the refresh interval with `train.progress_every`.
+During training, the baseline trainer defaults to `train.device=cuda` and falls back to CPU when the remote environment cannot use the GPU. It prints live batch progress for each epoch, including processed batches, running average loss, throughput, and ETA. On TTY terminals it updates in place; in web IDE / log-style terminals it prints refresh lines so progress remains visible. You can adjust the refresh interval with `train.progress_every`.
 
 ## Milestone Order
 

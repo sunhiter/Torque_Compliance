@@ -7,6 +7,7 @@ import json
 import math
 import sys
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -94,9 +95,27 @@ def _selection_metric(task: str, config: Any) -> str:
 
 
 def _resolve_device(config: Any) -> torch.device:
-    configured = str(getattr(config.train, "device", "auto")).strip().lower()
-    if configured == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    configured = str(getattr(config.train, "device", "cuda")).strip().lower()
+    allow_fallback = bool(getattr(config.train, "allow_cpu_fallback", True))
+
+    if configured == "cpu":
+        return torch.device("cpu")
+
+    preferred = "cuda" if configured == "auto" else configured
+    if preferred.startswith("cuda"):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            cuda_available = torch.cuda.is_available()
+        if cuda_available:
+            return torch.device(configured if configured != "auto" else "cuda")
+        if allow_fallback:
+            warning_message = f"Requested device '{configured}' is unavailable; falling back to CPU."
+            if caught:
+                warning_message = f"{warning_message} PyTorch reported: {caught[-1].message}"
+            print(warning_message, file=sys.stderr, flush=True)
+            return torch.device("cpu")
+        raise RuntimeError(f"Requested device '{configured}' is unavailable.")
+
     return torch.device(configured)
 
 
@@ -244,19 +263,24 @@ def _print_batch_progress(
     start_time: float,
     final: bool = False,
 ) -> None:
+    is_tty = sys.stderr.isatty()
     elapsed = max(time.monotonic() - start_time, 1e-9)
     average_loss = running_loss / max(sample_count, 1)
     batches_per_second = batch_index / elapsed
     remaining_batches = max(num_batches - batch_index, 0)
     eta = remaining_batches / batches_per_second if batches_per_second > 0 else float("inf")
     percent = (batch_index / max(num_batches, 1)) * 100.0
+    prefix = "\r" if is_tty else ""
     message = (
-        f"\r{stage} epoch {epoch:03d}/{total_epochs:03d}: "
+        f"{prefix}{stage} epoch {epoch:03d}/{total_epochs:03d}: "
         f"{batch_index}/{num_batches} batches ({percent:5.1f}%) | "
         f"avg_loss={average_loss:.4f} | "
         f"{batches_per_second:,.1f} batches/s | ETA {_format_eta(eta)}"
     )
-    print(message, file=sys.stderr, end="\n" if final else "", flush=True)
+    if is_tty:
+        print(message, file=sys.stderr, end="\n" if final else "", flush=True)
+    else:
+        print(message, file=sys.stderr, flush=True)
 
 
 def train_baseline(config: Any) -> dict[str, Any]:
@@ -316,6 +340,13 @@ def train_baseline(config: Any) -> dict[str, Any]:
     progress_every = max(1, int(getattr(config.train, "progress_every", 20)))
     best_metric = float("-inf")
     history: list[dict[str, Any]] = []
+
+    print(
+        "Starting baseline training | "
+        f"task={task} | modality={config.input.modality} | model={config.model.name} | "
+        f"device={device} | train={len(train_dataset)} val={len(datasets['val'])} test={len(datasets['test'])}",
+        flush=True,
+    )
 
     for epoch in range(1, int(config.train.epochs) + 1):
         model.train(True)
