@@ -1,2 +1,35 @@
-﻿experiment:
-  name: phase_baseline_placeholder
+dataset_config: configs/dataset.yaml
+
+experiment:
+  name: phase_mlp_ft_pose
+  output_root: outputs/baselines
+
+task: phase
+
+input:
+  modality: ft_pose
+
+model:
+  name: mlp
+  hidden_dims:
+    - 256
+    - 128
+  dropout: 0.1
+  hidden_size: 128
+  num_layers: 1
+  bidirectional: false
+
+train:
+  seed: 7
+  device: auto
+  batch_size: 256
+  epochs: 10
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  num_workers: 0
+  use_class_weights: true
+  selection_metric: macro_f1
+  checkpoint_name: best.pt
+  metrics_name: metrics.json
+  history_name: history.json
+  label_mapping_name: label_mapping.json

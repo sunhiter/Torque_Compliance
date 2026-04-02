@@ -1,4 +1,5 @@
 h5py>=3.10
 omegaconf>=2.3
 PyYAML>=6.0
+torch>=2.2
 pytest>=8.0

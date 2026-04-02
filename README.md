@@ -8,6 +8,7 @@ This repository hosts a minimal, reproducible Python scaffold for REASSEMBLE-bas
 - Milestone 4: timestamp alignment onto a shared sample axis for insert segments
 - Milestone 5: phase remapping and weak contact labels for aligned insert samples
 - Milestone 6: fixed-length history window export with train/val/test splits
+- Milestone 7: config-driven baseline training for phase, contact, and success prediction
 
 The design intentionally prioritizes F/T and pose metadata first, keeps dataset field names configurable, and avoids assuming fixed REASSEMBLE internals when the schema is still uncertain.
 
@@ -68,13 +69,26 @@ python3 scripts/05_make_contact_labels.py --config configs/dataset.yaml
 python3 scripts/06_export_windows.py --config configs/dataset.yaml
 ```
 
+10. Train a baseline classifier:
+
+```bash
+python3 scripts/07_train_baseline.py --config configs/train_phase.yaml
+```
+
+To switch task, input modality, or backbone without creating a new config file, use overrides such as:
+
+```bash
+python3 scripts/07_train_baseline.py --config configs/train_contact.yaml --set input.modality=ft_only model.name=gru
+python3 scripts/07_train_baseline.py --config configs/train_phase.yaml --set task=success experiment.name=success_mlp_pose_only input.modality=pose_only train.selection_metric=f1
+```
+
 If you want data-driven threshold suggestions from the generated `ft_value_norm` distribution, run:
 
 ```bash
 python3 scripts/05_make_contact_labels.py --config configs/dataset.yaml --suggest-thresholds
 ```
 
-Generated files default to `data/processed/file_manifest.csv`, `data/processed/trial_index.csv`, `data/processed/segment_index.csv`, `data/processed/insert_index.csv`, `data/processed/aligned_samples.csv`, `data/processed/phase_labels.csv`, `data/processed/contact_labels.csv`, `data/processed/windows.csv`, `data/processed/train_windows.csv`, `data/processed/val_windows.csv`, and `data/processed/test_windows.csv`.
+Generated files default to `data/processed/file_manifest.csv`, `data/processed/trial_index.csv`, `data/processed/segment_index.csv`, `data/processed/insert_index.csv`, `data/processed/aligned_samples.csv`, `data/processed/phase_labels.csv`, `data/processed/contact_labels.csv`, `data/processed/windows.csv`, `data/processed/train_windows.csv`, `data/processed/val_windows.csv`, and `data/processed/test_windows.csv`. Baseline training outputs checkpoints and metric summaries under `outputs/baselines/<experiment_name>/`.
 
 For the official REASSEMBLE layout, HDF5 trials live in a `data/` directory while the matching `*_poses.json` files live in a separate `poses/` directory. Files are matched by their shared timestamp filename stem.
 
@@ -88,6 +102,8 @@ In `trial_index.csv`, `trial_success_all_actions` is interpreted as demonstratio
 
 The Milestone 6 exporter streams rows directly to disk and precomputes aligned pose/F/T vectors once per insert segment so full-dataset runs avoid repeated HDF5 opens and large in-memory window buffers. It also prints command-line progress with throughput and ETA during export; the refresh interval is configurable with `windows.progress_every`. For a first remote smoke test on the full dataset, it can still help to temporarily raise `windows.export_stride` before switching back to the final setting.
 
+Milestone 7 trains single-task baselines directly from the exported windows. The first working version supports `phase`, `contact`, and `success` tasks with either `mlp` or `gru` backbones and three modality settings: `ft_only`, `pose_only`, and `ft_pose`. The trainer writes a `best.pt` checkpoint plus `metrics.json`, `history.json`, and `label_mapping.json` for each run.
+
 ## Milestone Order
 
 1. Milestone 1: scaffold and config system
@@ -96,7 +112,8 @@ The Milestone 6 exporter streams rows directly to disk and precomputes aligned p
 4. Milestone 4: time alignment
 5. Milestone 5: labeling
 6. Milestone 6: window export
-7. Milestone 7+: training and evaluation
+7. Milestone 7: baseline training
+8. Milestone 8+: observer and evaluation
 
 Unless blocked, development should follow this order.
 
@@ -109,7 +126,8 @@ Unless blocked, development should follow this order.
 - Script interface check: `python3 scripts/04_make_phase_labels.py --help`
 - Script interface check: `python3 scripts/05_make_contact_labels.py --help`
 - Script interface check: `python3 scripts/06_export_windows.py --help`
-- Regression tests: `python3 -m pytest tests/test_config.py tests/test_trial_index.py tests/test_insert_index.py tests/test_timestamp_aligner.py tests/test_phase_mapper.py tests/test_contact_rule_labeler.py tests/test_window_dataset.py`
+- Script interface check: `python3 scripts/07_train_baseline.py --help`
+- Regression tests: `python3 -m pytest tests/test_config.py tests/test_trial_index.py tests/test_insert_index.py tests/test_timestamp_aligner.py tests/test_phase_mapper.py tests/test_contact_rule_labeler.py tests/test_window_dataset.py tests/test_metrics.py`
 
 ## TODO
 
