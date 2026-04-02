@@ -86,6 +86,8 @@ In `trial_index.csv`, `trial_success_all_actions` is interpreted as demonstratio
 
 `windows.csv` stores fixed-length history windows with JSON-encoded pose/F/T histories, optional RGB frame-index histories, a structure token, and labels for the current step plus next-step pose delta. The export also writes deterministic `train`, `val`, and `test` subset CSVs by trial unless an external split mapping is provided.
 
+The Milestone 6 exporter streams rows directly to disk and precomputes aligned pose/F/T vectors once per insert segment so full-dataset runs avoid repeated HDF5 opens and large in-memory window buffers. It also prints command-line progress with throughput and ETA during export; the refresh interval is configurable with `windows.progress_every`. For a first remote smoke test on the full dataset, it can still help to temporarily raise `windows.export_stride` before switching back to the final setting.
+
 ## Milestone Order
 
 1. Milestone 1: scaffold and config system

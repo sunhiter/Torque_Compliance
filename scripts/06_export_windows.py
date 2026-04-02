@@ -27,13 +27,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    from reassemble_minexp.dataset.window_dataset import build_window_rows, write_window_rows
+    from reassemble_minexp.dataset.window_dataset import export_windows
     from reassemble_minexp.utils.config import load_config
 
     config = load_config(args.config, args.overrides)
-    window_rows = build_window_rows(config)
-    output_path = write_window_rows(config, window_rows)
-    print(f"Wrote window export with {len(window_rows)} rows to {output_path}")
+    output_path, row_count = export_windows(config)
+    print(f"Wrote window export with {row_count} rows to {output_path}")
 
 
 if __name__ == "__main__":

@@ -55,6 +55,7 @@ windows:
   history_length: 16
   history_step: 1
   export_stride: 4
+  progress_every: 500
   window_index_name: windows.csv
   structure_tokens_path: ""
   split_source_path: ""

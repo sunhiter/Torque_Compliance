@@ -5,8 +5,10 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import sys
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Iterator
 
 import h5py
 import yaml
@@ -110,12 +112,6 @@ def _interpolate_vector(samples: list[list[float]], index_0: int, index_1: int, 
     return [(left[i] * weight_0) + (right[i] * weight_1) for i in range(width)]
 
 
-def _parse_json_or_scalar(value: str) -> Any:
-    if value in ("", None):
-        return ""
-    return value
-
-
 def _load_structure_tokens(path: str | Path | None) -> dict[str, dict[str, str]]:
     if not path:
         return {"insert_id": {}, "trial_id": {}, "object_name": {}}
@@ -210,142 +206,81 @@ def _history_indices(target_index: int, history_length: int, history_step: int) 
     return [start_index + offset * history_step for offset in range(history_length)]
 
 
-def build_window_rows(config: Any) -> list[dict[str, Any]]:
-    """Build fixed-length history windows from aligned samples and labels."""
-
+def _prepare_window_context(config: Any) -> dict[str, Any]:
     processed_root = Path(config.dataset.processed_root)
     aligned_rows = _read_csv(processed_root / str(config.alignment.aligned_index_name))
     phase_rows = _read_csv(processed_root / str(config.labels.phase_index_name))
     contact_rows = _read_csv(processed_root / str(config.labels.contact_index_name))
     insert_rows = _read_csv(processed_root / str(config.dataset.insert_index_name))
 
-    aligned_by_insert = {insert_id: _sorted_samples(rows) for insert_id, rows in _group_rows(aligned_rows, "insert_id").items()}
-    phase_by_sample = {row["sample_id"]: row for row in phase_rows}
-    contact_by_sample = {row["sample_id"]: row for row in contact_rows}
-    insert_by_id = {row["insert_id"]: row for row in insert_rows}
-
-    history_length = int(config.windows.history_length)
-    history_step = int(config.windows.history_step)
-    export_stride = int(config.windows.export_stride)
-    token_maps = _load_structure_tokens(getattr(config.windows, "structure_tokens_path", ""))
-    split_lookup = _split_lookup(config)
-
-    h5_cache: dict[str, dict[str, list[list[float]]]] = {}
-    success_cache: dict[str, dict[str, Any]] = {}
-    window_rows: list[dict[str, Any]] = []
-
-    for insert_id, samples in aligned_by_insert.items():
-        if len(samples) < history_length or len(samples) < 2:
-            continue
-
-        insert_row = insert_by_id[insert_id]
-        split = _assign_split(insert_row, split_lookup, config)
-        structure_token = _resolve_structure_token(insert_row, token_maps)
-        h5_path = insert_row["h5_path"]
-        if h5_path not in success_cache:
-            success_cache[h5_path] = _segment_success_lookup(
-                h5_path,
-                list(config.schema.result_keys),
-                str(config.schema.segments_key),
-            )
-        insert_success = success_cache[h5_path].get(insert_row["high_segment_id"], insert_row.get("trial_success_last_action", ""))
-
-        if h5_path not in h5_cache:
-            h5_cache[h5_path] = {}
-
-        for target_index in range((history_length - 1) * history_step, len(samples) - 1, export_stride):
-            indices = _history_indices(target_index, history_length, history_step)
-            history_samples = [samples[index] for index in indices]
-            next_sample = samples[target_index + 1]
-            current_sample = samples[target_index]
-
-            pose_source_key = current_sample["pose_source_key"]
-            ft_source_key = current_sample["ft_source_key"]
-            with h5py.File(h5_path, "r") as handle:
-                if pose_source_key and pose_source_key not in h5_cache[h5_path]:
-                    h5_cache[h5_path][pose_source_key] = _read_numeric_dataset(handle, pose_source_key)
-                if ft_source_key and ft_source_key not in h5_cache[h5_path]:
-                    h5_cache[h5_path][ft_source_key] = _read_numeric_dataset(handle, ft_source_key)
-
-            pose_samples = h5_cache[h5_path].get(pose_source_key, [])
-            ft_samples = h5_cache[h5_path].get(ft_source_key, [])
-
-            pose_history = []
-            ft_history = []
-            for sample in history_samples:
-                if pose_samples:
-                    pose_history.append(
-                        _interpolate_vector(
-                            pose_samples,
-                            int(sample["pose_index_0"]),
-                            int(sample["pose_index_1"]),
-                            float(sample["pose_weight_0"]),
-                            float(sample["pose_weight_1"]),
-                        )
-                    )
-                if ft_samples:
-                    ft_history.append(
-                        _interpolate_vector(
-                            ft_samples,
-                            int(sample["ft_index_0"]),
-                            int(sample["ft_index_1"]),
-                            float(sample["ft_weight_0"]),
-                            float(sample["ft_weight_1"]),
-                        )
-                    )
-
-            current_pose = pose_history[-1] if pose_history else []
-            next_pose = (
-                _interpolate_vector(
-                    pose_samples,
-                    int(next_sample["pose_index_0"]),
-                    int(next_sample["pose_index_1"]),
-                    float(next_sample["pose_weight_0"]),
-                    float(next_sample["pose_weight_1"]),
-                )
-                if pose_samples
-                else []
-            )
-            next_delta = [next_pose[i] - current_pose[i] for i in range(min(len(current_pose), len(next_pose)))]
-
-            rgb_histories: dict[str, list[Any]] = {}
-            for key in config.alignment.rgb_source_keys:
-                rgb_histories[key] = [sample.get(f"rgb_{key}_index", "") for sample in history_samples]
-
-            phase_row = phase_by_sample[current_sample["sample_id"]]
-            contact_row = contact_by_sample[current_sample["sample_id"]]
-            window_rows.append(
-                {
-                    "window_id": f"{insert_id}::window::{target_index:05d}",
-                    "insert_id": insert_id,
-                    "trial_id": current_sample["trial_id"],
-                    "split": split,
-                    "target_sample_id": current_sample["sample_id"],
-                    "target_sample_index": current_sample["sample_index"],
-                    "history_sample_ids_json": json.dumps([sample["sample_id"] for sample in history_samples]),
-                    "history_aligned_times_json": json.dumps([float(sample["aligned_time"]) for sample in history_samples]),
-                    "ft_history_json": json.dumps(ft_history),
-                    "pose_history_json": json.dumps(pose_history),
-                    "structure_token": structure_token,
-                    "y_phase": phase_row["y_phase"],
-                    "y_contact": contact_row["y_contact"],
-                    "y_success": insert_success,
-                    "y_next_delta_json": json.dumps(next_delta),
-                    "h5_path": h5_path,
-                    "pose_path": insert_row["pose_path"],
-                }
-            )
-            for key, values in rgb_histories.items():
-                window_rows[-1][f"rgb_{key}_history_json"] = json.dumps(values)
-
-    return window_rows
+    return {
+        "aligned_by_insert": {
+            insert_id: _sorted_samples(rows)
+            for insert_id, rows in _group_rows(aligned_rows, "insert_id").items()
+        },
+        "phase_by_sample": {row["sample_id"]: row for row in phase_rows},
+        "contact_by_sample": {row["sample_id"]: row for row in contact_rows},
+        "insert_by_id": {row["insert_id"]: row for row in insert_rows},
+    }
 
 
-def write_window_rows(config: Any, window_rows: list[dict[str, Any]]) -> Path:
-    """Persist window exports as one combined file plus split-specific subsets."""
+def _window_count(sample_count: int, history_length: int, history_step: int, export_stride: int) -> int:
+    start_index = (history_length - 1) * history_step
+    stop_index = sample_count - 1
+    if sample_count < history_length or sample_count < 2 or start_index >= stop_index:
+        return 0
+    return ((stop_index - 1 - start_index) // export_stride) + 1
 
-    processed_root = ensure_directory(config.dataset.processed_root)
-    output_path = processed_root / str(config.windows.window_index_name)
+
+def _count_total_windows(aligned_by_insert: dict[str, list[dict[str, str]]], history_length: int, history_step: int, export_stride: int) -> int:
+    return sum(
+        _window_count(len(samples), history_length, history_step, export_stride)
+        for samples in aligned_by_insert.values()
+    )
+
+
+def _precompute_sample_series(
+    samples: list[dict[str, str]],
+    pose_samples: list[list[float]],
+    ft_samples: list[list[float]],
+    rgb_source_keys: Iterable[str],
+) -> dict[str, Any]:
+    sample_ids = [sample["sample_id"] for sample in samples]
+    aligned_times = [float(sample["aligned_time"]) for sample in samples]
+    pose_vectors = [
+        _interpolate_vector(
+            pose_samples,
+            int(sample["pose_index_0"]),
+            int(sample["pose_index_1"]),
+            float(sample["pose_weight_0"]),
+            float(sample["pose_weight_1"]),
+        )
+        for sample in samples
+    ] if pose_samples else []
+    ft_vectors = [
+        _interpolate_vector(
+            ft_samples,
+            int(sample["ft_index_0"]),
+            int(sample["ft_index_1"]),
+            float(sample["ft_weight_0"]),
+            float(sample["ft_weight_1"]),
+        )
+        for sample in samples
+    ] if ft_samples else []
+    rgb_indices = {
+        key: [sample.get(f"rgb_{key}_index", "") for sample in samples]
+        for key in rgb_source_keys
+    }
+    return {
+        "sample_ids": sample_ids,
+        "aligned_times": aligned_times,
+        "pose_vectors": pose_vectors,
+        "ft_vectors": ft_vectors,
+        "rgb_indices": rgb_indices,
+    }
+
+
+def _window_fieldnames(config: Any) -> list[str]:
     fieldnames = [
         "window_id",
         "insert_id",
@@ -365,18 +300,203 @@ def write_window_rows(config: Any, window_rows: list[dict[str, Any]]) -> Path:
     ]
     fieldnames.extend(f"rgb_{key}_history_json" for key in config.alignment.rgb_source_keys)
     fieldnames.extend(["h5_path", "pose_path"])
-    _write_csv(output_path, window_rows, fieldnames)
+    return fieldnames
 
-    for split_name in ("train", "val", "test"):
-        split_rows = [row for row in window_rows if row["split"] == split_name]
-        split_path = processed_root / str(getattr(config.windows.split_output_names, split_name))
-        _write_csv(split_path, split_rows, fieldnames)
 
-    return output_path
+def iter_window_rows(config: Any, context: dict[str, Any] | None = None) -> Iterator[dict[str, Any]]:
+    """Yield fixed-length history windows from aligned samples and labels."""
+
+    context = context or _prepare_window_context(config)
+    aligned_by_insert = context["aligned_by_insert"]
+    phase_by_sample = context["phase_by_sample"]
+    contact_by_sample = context["contact_by_sample"]
+    insert_by_id = context["insert_by_id"]
+
+    history_length = int(config.windows.history_length)
+    history_step = int(config.windows.history_step)
+    export_stride = int(config.windows.export_stride)
+    token_maps = _load_structure_tokens(getattr(config.windows, "structure_tokens_path", ""))
+    split_lookup = _split_lookup(config)
+
+    h5_cache: dict[str, dict[str, list[list[float]]]] = {}
+    success_cache: dict[str, dict[str, Any]] = {}
+    for insert_id, samples in aligned_by_insert.items():
+        if len(samples) < history_length or len(samples) < 2:
+            continue
+
+        insert_row = insert_by_id[insert_id]
+        split = _assign_split(insert_row, split_lookup, config)
+        structure_token = _resolve_structure_token(insert_row, token_maps)
+        h5_path = insert_row["h5_path"]
+        if h5_path not in success_cache:
+            success_cache[h5_path] = _segment_success_lookup(
+                h5_path,
+                list(config.schema.result_keys),
+                str(config.schema.segments_key),
+            )
+        insert_success = success_cache[h5_path].get(insert_row["high_segment_id"], insert_row.get("trial_success_last_action", ""))
+
+        if h5_path not in h5_cache:
+            h5_cache[h5_path] = {}
+
+        pose_source_key = samples[0]["pose_source_key"]
+        ft_source_key = samples[0]["ft_source_key"]
+        if pose_source_key or ft_source_key:
+            with h5py.File(h5_path, "r") as handle:
+                if pose_source_key and pose_source_key not in h5_cache[h5_path]:
+                    h5_cache[h5_path][pose_source_key] = _read_numeric_dataset(handle, pose_source_key)
+                if ft_source_key and ft_source_key not in h5_cache[h5_path]:
+                    h5_cache[h5_path][ft_source_key] = _read_numeric_dataset(handle, ft_source_key)
+
+        pose_samples = h5_cache[h5_path].get(pose_source_key, [])
+        ft_samples = h5_cache[h5_path].get(ft_source_key, [])
+        sample_series = _precompute_sample_series(samples, pose_samples, ft_samples, config.alignment.rgb_source_keys)
+
+        for target_index in range((history_length - 1) * history_step, len(samples) - 1, export_stride):
+            indices = _history_indices(target_index, history_length, history_step)
+            next_sample = samples[target_index + 1]
+            current_sample = samples[target_index]
+            pose_history = [sample_series["pose_vectors"][index] for index in indices] if sample_series["pose_vectors"] else []
+            ft_history = [sample_series["ft_vectors"][index] for index in indices] if sample_series["ft_vectors"] else []
+
+            current_pose = sample_series["pose_vectors"][target_index] if sample_series["pose_vectors"] else []
+            next_pose = sample_series["pose_vectors"][target_index + 1] if sample_series["pose_vectors"] else []
+            next_delta = [next_pose[i] - current_pose[i] for i in range(min(len(current_pose), len(next_pose)))]
+
+            phase_row = phase_by_sample[current_sample["sample_id"]]
+            contact_row = contact_by_sample[current_sample["sample_id"]]
+            row = {
+                "window_id": f"{insert_id}::window::{target_index:05d}",
+                "insert_id": insert_id,
+                "trial_id": current_sample["trial_id"],
+                "split": split,
+                "target_sample_id": current_sample["sample_id"],
+                "target_sample_index": current_sample["sample_index"],
+                "history_sample_ids_json": json.dumps([sample_series["sample_ids"][index] for index in indices]),
+                "history_aligned_times_json": json.dumps([sample_series["aligned_times"][index] for index in indices]),
+                "ft_history_json": json.dumps(ft_history),
+                "pose_history_json": json.dumps(pose_history),
+                "structure_token": structure_token,
+                "y_phase": phase_row["y_phase"],
+                "y_contact": contact_row["y_contact"],
+                "y_success": insert_success,
+                "y_next_delta_json": json.dumps(next_delta),
+                "h5_path": h5_path,
+                "pose_path": insert_row["pose_path"],
+            }
+            for key, values in sample_series["rgb_indices"].items():
+                row[f"rgb_{key}_history_json"] = json.dumps([values[index] for index in indices])
+            yield row
+
+
+def build_window_rows(config: Any) -> list[dict[str, Any]]:
+    """Build fixed-length history windows from aligned samples and labels."""
+
+    return list(iter_window_rows(config))
+
+
+def _format_eta(seconds: float) -> str:
+    if seconds < 0 or seconds == float("inf"):
+        return "unknown"
+    rounded = int(seconds + 0.5)
+    hours, remainder = divmod(rounded, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours:d}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes:d}m{secs:02d}s"
+    return f"{secs:d}s"
+
+
+def _print_progress(processed: int, total: int, start_time: float, *, final: bool = False) -> None:
+    elapsed = max(time.monotonic() - start_time, 1e-9)
+    rate = processed / elapsed
+    if total > 0:
+        percent = (processed / total) * 100.0
+        remaining = max(total - processed, 0)
+        eta_seconds = remaining / rate if rate > 0 else float("inf")
+        message = (
+            f"\rExporting windows: {processed}/{total} ({percent:5.1f}%)"
+            f" | {rate:,.1f} windows/s | ETA {_format_eta(eta_seconds)}"
+        )
+    else:
+        message = f"\rExporting windows: {processed} rows | {rate:,.1f} windows/s"
+
+    end = "\n" if final else ""
+    print(message, file=sys.stderr, end=end, flush=True)
+
+
+def write_window_rows(config: Any, window_rows: Iterable[dict[str, Any]]) -> tuple[Path, int]:
+    """Persist window exports as one combined file plus split-specific subsets."""
+
+    processed_root = ensure_directory(config.dataset.processed_root)
+    output_path = processed_root / str(config.windows.window_index_name)
+    fieldnames = _window_fieldnames(config)
+
+    split_paths = {
+        split_name: processed_root / str(getattr(config.windows.split_output_names, split_name))
+        for split_name in ("train", "val", "test")
+    }
+    row_count = 0
+
+    with output_path.open("w", newline="", encoding="utf-8") as combined_handle:
+        combined_writer = csv.DictWriter(combined_handle, fieldnames=fieldnames)
+        combined_writer.writeheader()
+        split_handles = {
+            split_name: split_path.open("w", newline="", encoding="utf-8")
+            for split_name, split_path in split_paths.items()
+        }
+        try:
+            split_writers = {
+                split_name: csv.DictWriter(handle, fieldnames=fieldnames)
+                for split_name, handle in split_handles.items()
+            }
+            for writer in split_writers.values():
+                writer.writeheader()
+
+            for row in window_rows:
+                combined_writer.writerow(row)
+                split_name = row["split"]
+                if split_name in split_writers:
+                    split_writers[split_name].writerow(row)
+                row_count += 1
+        finally:
+            for handle in split_handles.values():
+                handle.close()
+
+    return output_path, row_count
+
+
+def export_windows(config: Any) -> tuple[Path, int]:
+    """Run Milestone 6 window export and stream rows to disk."""
+
+    context = _prepare_window_context(config)
+    history_length = int(config.windows.history_length)
+    history_step = int(config.windows.history_step)
+    export_stride = int(config.windows.export_stride)
+    total_windows = _count_total_windows(
+        context["aligned_by_insert"],
+        history_length,
+        history_step,
+        export_stride,
+    )
+    progress_every = max(1, int(getattr(config.windows, "progress_every", 500)))
+    start_time = time.monotonic()
+
+    def _progress_wrapped_rows() -> Iterator[dict[str, Any]]:
+        processed = 0
+        for row in iter_window_rows(config, context):
+            processed += 1
+            if processed == 1 or processed % progress_every == 0 or processed == total_windows:
+                _print_progress(processed, total_windows, start_time)
+            yield row
+        _print_progress(processed, total_windows, start_time, final=True)
+
+    return write_window_rows(config, _progress_wrapped_rows())
 
 
 def run_window_export(config: Any) -> Path:
     """Run Milestone 6 window export end to end."""
 
-    window_rows = build_window_rows(config)
-    return write_window_rows(config, window_rows)
+    output_path, _ = export_windows(config)
+    return output_path
